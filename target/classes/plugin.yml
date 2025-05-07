@@ -1,0 +1,15 @@
+name: LootFilter
+version: '1.0'
+main: me.hurtful.lootFilter.LootFilter
+api-version: '1.21'
+description: Filter which items you want to pick up while mining
+commands:
+  lootfilter:
+    description: Control which items you want to pick up
+    usage: /<command> [toggle|add|remove|clear|list] [material]
+    aliases: [lf, filter]
+    permission: lootfilter.use
+permissions:
+  lootfilter.use:
+    description: Allows using the LootFilter plugin
+    default: true
