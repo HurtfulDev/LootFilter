@@ -1,5 +1,5 @@
 name: LootFilter
-version: '1.0'
+version: '1.1'
 main: me.hurtful.lootFilter.LootFilter
 api-version: '1.21'
 description: Filter which items you want to pick up while mining

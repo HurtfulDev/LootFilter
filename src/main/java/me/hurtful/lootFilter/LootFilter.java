@@ -1,5 +1,6 @@
 package me.hurtful.lootFilter;
 
+import me.hurtful.lootFilter.GitHubUpdater;
 import org.bukkit.Material;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
@@ -10,6 +11,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerPickupItemEvent;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.ChatColor;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -24,12 +26,37 @@ public class LootFilter extends JavaPlugin implements Listener, TabCompleter {
     private boolean pluginEnabled = true;
     private Map<UUID, Set<Material>> playerPickupPreferences = new HashMap<>();
 
+    private GitHubUpdater updater;
+    private boolean checkForUpdates = true;
+
     @Override
     public void onEnable() {
         getServer().getPluginManager().registerEvents(this, this);
 
         // Register the tab completer
         getCommand("lootfilter").setTabCompleter(this);
+
+        // Initialize the updater
+        updater = new GitHubUpdater(this, "HurtfulDev", "LootFilter");
+
+        // Check for updates (async)
+        if (checkForUpdates) {
+            getLogger().info("Checking for updates...");
+            updater.checkForUpdates(result -> {
+                if (result.isUpdateAvailable()) {
+                    getLogger().info("=================================");
+                    getLogger().info("A new version of LootFilter is available!");
+                    getLogger().info("Current version: " + result.getCurrentVersion());
+                    getLogger().info("Latest version: " + result.getLatestVersion());
+                    getLogger().info("Run '/lootfilter update' to update the plugin");
+                    getLogger().info("=================================");
+                } else if (result.getErrorMessage() != null) {
+                    getLogger().warning("Failed to check for updates: " + result.getErrorMessage());
+                } else {
+                    getLogger().info("You're running the latest version of LootFilter!");
+                }
+            });
+        }
 
         getLogger().info("LootFilter plugin has been enabled!");
     }
@@ -41,21 +68,52 @@ public class LootFilter extends JavaPlugin implements Listener, TabCompleter {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (!(sender instanceof Player)) {
-            sender.sendMessage("This command can only be used by players.");
-            return true;
-        }
-
-        Player player = (Player) sender;
-        UUID playerId = player.getUniqueId();
-
         if (command.getName().equalsIgnoreCase("lootfilter")) {
             if (args.length == 0) {
-                sendHelpMessage(player);
+                sendHelpMessage(sender);
                 return true;
             }
 
             String subCommand = args[0].toLowerCase();
+
+            // Special case for update command which can be run by console
+            if (subCommand.equals("update")) {
+                if (!sender.hasPermission("lootfilter.update")) {
+                    sender.sendMessage(ChatColor.RED + "You don't have permission to update the plugin.");
+                    return true;
+                }
+
+                sender.sendMessage(ChatColor.YELLOW + "Checking for updates...");
+                updater.checkForUpdates(result -> {
+                    if (result.isUpdateAvailable()) {
+                        sender.sendMessage(ChatColor.GREEN + "Update found! Current version: " + result.getCurrentVersion()
+                                + ", Latest version: " + result.getLatestVersion());
+                        sender.sendMessage(ChatColor.YELLOW + "Downloading update...");
+
+                        updater.downloadUpdate(success -> {
+                            if (success) {
+                                sender.sendMessage(ChatColor.GREEN + "Update downloaded successfully! Restart the server to apply.");
+                            } else {
+                                sender.sendMessage(ChatColor.RED + "Failed to download the update. Check console for details.");
+                            }
+                        });
+                    } else if (result.getErrorMessage() != null) {
+                        sender.sendMessage(ChatColor.RED + "Error checking for updates: " + result.getErrorMessage());
+                    } else {
+                        sender.sendMessage(ChatColor.GREEN + "You're running the latest version!");
+                    }
+                });
+                return true;
+            }
+
+            // All other commands require player
+            if (!(sender instanceof Player)) {
+                sender.sendMessage("This command can only be used by players.");
+                return true;
+            }
+
+            Player player = (Player) sender;
+            UUID playerId = player.getUniqueId();
 
             switch (subCommand) {
                 case "toggle":
@@ -123,7 +181,7 @@ public class LootFilter extends JavaPlugin implements Listener, TabCompleter {
                     return true;
 
                 default:
-                    sendHelpMessage(player);
+                    sendHelpMessage(sender);
                     return true;
             }
         }
@@ -149,13 +207,18 @@ public class LootFilter extends JavaPlugin implements Listener, TabCompleter {
         }
     }
 
-    private void sendHelpMessage(Player player) {
-        player.sendMessage("§6LootFilter Commands:");
-        player.sendMessage("§7/lootfilter toggle §f- Enable/disable the plugin");
-        player.sendMessage("§7/lootfilter add <material> §f- Add a material to your pickup list");
-        player.sendMessage("§7/lootfilter remove <material> §f- Remove a material from your pickup list");
-        player.sendMessage("§7/lootfilter clear §f- Clear your pickup list");
-        player.sendMessage("§7/lootfilter list §f- Show your pickup list");
+    private void sendHelpMessage(CommandSender sender) {
+        sender.sendMessage("§6LootFilter Commands:");
+        sender.sendMessage("§7/lootfilter toggle §f- Enable/disable the plugin");
+        sender.sendMessage("§7/lootfilter add <material> §f- Add a material to your pickup list");
+        sender.sendMessage("§7/lootfilter remove <material> §f- Remove a material from your pickup list");
+        sender.sendMessage("§7/lootfilter clear §f- Clear your pickup list");
+        sender.sendMessage("§7/lootfilter list §f- Show your pickup list");
+
+        // Only show update command to players with permission
+        if (sender.hasPermission("lootfilter.update")) {
+            sender.sendMessage("§7/lootfilter update §f- Check for and download plugin updates");
+        }
     }
 
     @Override
@@ -164,7 +227,18 @@ public class LootFilter extends JavaPlugin implements Listener, TabCompleter {
 
         if (args.length == 1) {
             // First argument - provide subcommands
-            String[] subCommands = {"toggle", "add", "remove", "clear", "list"};
+            List<String> subCommands = new ArrayList<>();
+            subCommands.add("toggle");
+            subCommands.add("add");
+            subCommands.add("remove");
+            subCommands.add("clear");
+            subCommands.add("list");
+
+            // Only add update command if player has permission
+            if (sender.hasPermission("lootfilter.update")) {
+                subCommands.add("update");
+            }
+
             for (String subCommand : subCommands) {
                 if (subCommand.startsWith(args[0].toLowerCase())) {
                     completions.add(subCommand);
